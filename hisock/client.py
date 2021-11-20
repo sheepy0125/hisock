@@ -32,15 +32,17 @@ try:
     from .utils import (
         make_header, _removeprefix,
         ServerNotRunning, ClientDisconnected,
-        iptup_to_str
+        iptup_to_str, _strip_underhood_command
     )
+    from . import constants
 except ImportError:
     # relative import doesn't work for non-pip builds
     from utils import (
         make_header, _removeprefix,
         ServerNotRunning, ClientDisconnected,
-        iptup_to_str
+        iptup_to_str, _strip_underhood_command
     )
+    import constants
 
 
 # ░█████╗░░█████╗░██╗░░░██╗████████╗██╗░█████╗░███╗░░██╗██╗
@@ -165,10 +167,10 @@ class HiSockClient:
             "name": self.name,
             "group": self.group
         }
-        conn_header = make_header(f"$CLTHELLO$ {json.dumps(hello_dict)}", self.header_len)
+        conn_header = make_header(f"$CLTHELLO$ {json.dumps(hello_dict)} $$CLTHELLO$$", self.header_len)
 
         self.sock.send(
-            conn_header + f"$CLTHELLO$ {json.dumps(hello_dict)}".encode()
+            conn_header + f"$CLTHELLO$ {json.dumps(hello_dict)} $$CLTHELLO$$".encode()
         )
 
     def __str__(self):
@@ -321,16 +323,19 @@ class HiSockClient:
                             )
 
                     # Handle "reserved functions"
-                    if content.startswith(b"$CLTCONN$") and 'client_connect' in self.funcs:
+                    if (
+                            _strip_underhood_command(content, "$CLTCONN$") and
+                            'client_connect' in self.funcs
+                    ):
                         # Client connected to server; parse and call function
                         clt_content = json.loads(
-                            _removeprefix(content, b"$CLTCONN$ ")
+                            _strip_underhood_command(content, "$CLTCONN$")
                         )
                         self.funcs['client_connect']['func'](clt_content)
-                    elif content.startswith(b"$CLTDISCONN$") and 'client_disconnect' in self.funcs:
+                    elif _strip_underhood_command(content, "$CLTDISCONN$") and 'client_disconnect' in self.funcs:
                         # Client disconnected from server; parse and call function
                         clt_content = json.loads(
-                            _removeprefix(content, b"$CLTDISCONN$ ")
+                            _strip_underhood_command(content, "$CLTDISCONN$")
                         )
                         self.funcs['client_disconnect']['func'](clt_content)
 
@@ -405,11 +410,15 @@ class HiSockClient:
             """Adds a function that gets called when the client receives a matching command"""
 
             # Checks for illegal $cmd$ notation (used for reserved functions)
-            if re.search(r"\$.+\$", self.command):
-                raise ValueError(
-                    "The format \"$command$\" is used for reserved functions - "
-                    "Consider using a different format"
-                )
+            no_arg = constants.underhood_cmds["no_arguments"]
+            with_arg = constants.underhood_cmds["with_arguments"]
+
+            for underhood in no_arg + with_arg:
+                if re.search(rf"\${underhood}\$", self.command):
+                    raise ValueError(
+                        "The format \"$command$\" is used for reserved functions - "
+                        "Consider using a different format"
+                    )
             # Gets annotations of function
             annots = inspect.getfullargspec(func).annotations
             func_args = inspect.getfullargspec(func).args
@@ -550,7 +559,7 @@ class HiSockClient:
         """
         if new_name is not None:
             new_name_header = make_header(
-                b"$CHNAME$ " + new_name.encode(),
+                b"$CHNAME$ " + new_name.encode() + b" $$CHNAME$$",
                 self.header_len
             )
         else:
@@ -562,7 +571,7 @@ class HiSockClient:
         # Send name change to server
         self.sock.send(
             new_name_header +
-            (b"$CHNAME$ " + new_name.encode()) if new_name is not None else
+            (b"$CHNAME$ " + new_name.encode() + b" $$CHNAME$$") if new_name is not None else
             b"$CHNAME$"
         )
 

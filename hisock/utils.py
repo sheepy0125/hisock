@@ -116,6 +116,31 @@ def _removeprefix(
         return string[:]
 
 
+def _removesuffix(
+        string: Union[str, bytes],
+        suffix: Union[str, bytes],
+) -> Union[str, bytes]:
+    """A backwards-compatible alternative of str.removeprefix"""
+    if string.endswith(suffix):
+        return string[:-len(suffix)]
+    else:
+        return string[:]
+
+
+def _strip_underhood_command(data, command: str):
+    """Command: Surrounded by $ already"""
+    if isinstance(data, str):
+        if data.startswith(f"{command} ") and data.endswith(f" ${command}$"):
+            return _removeprefix(_removesuffix(data, f" ${command}$"), f"{command} ")
+    elif isinstance(data, bytes):
+        if (
+                data.startswith(command.encode() + b" ") and
+                data.endswith(b" $" + command.encode() + b"$")
+        ):
+            return _removeprefix(_removesuffix(data, f" ${command}$"), f"{command} ")
+    return False
+
+
 def _dict_tupkey_lookup(multikey, _dict, idx_to_match=None):
     """
     Returns the value of the dict looked up,

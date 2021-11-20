@@ -32,15 +32,15 @@ try:
         NoHeaderWarning, NoMessageException,
         receive_message, _removeprefix, make_header,
         _dict_tupkey_lookup, _dict_tupkey_lookup_key,
-        _type_cast_server,
-)
+        _type_cast_server, _strip_underhood_command, _removesuffix
+    )
 except ImportError:
     # relative import doesn't work for non-pip builds
     from utils import (
         NoHeaderWarning, NoMessageException,
         receive_message, _removeprefix, make_header,
         _dict_tupkey_lookup, _dict_tupkey_lookup_key,
-        _type_cast_server,
+        _type_cast_server, _strip_underhood_command, _removesuffix
     )
 
 
@@ -638,7 +638,7 @@ class HiSockServer:
                 # Handle client hello
                 client = receive_message(connection, self.header_len)
 
-                client_hello = _removeprefix(client['data'].decode(), "$CLTHELLO$ ")
+                client_hello = _strip_underhood_command(client['data'].decode(), "$CLTHELLO$")
                 client_hello = json.loads(client_hello)
 
                 # Establishes socket lists and dicts
@@ -664,12 +664,12 @@ class HiSockServer:
                     )
 
                 # Send reserved functions over to existing clients
-                clt_cnt_header = make_header(f"$CLTCONN$ {json.dumps(clt_info)}", self.header_len)
+                clt_cnt_header = make_header(f"$CLTCONN$ {json.dumps(clt_info)} $$CLTCON$$", self.header_len)
                 clt_to_send = [clt for clt in self.clients if clt != connection]
 
                 for sock_client in clt_to_send:
                     sock_client.send(
-                        clt_cnt_header + f"$CLTCONN$ {json.dumps(clt_info)}".encode()
+                        clt_cnt_header + f"$CLTCONN$ {json.dumps(clt_info)} $$CLTCONN$$".encode()
                     )
 
             else:
@@ -694,7 +694,7 @@ class HiSockServer:
                     if 'leave' in self.funcs:
                         # Reserved function - Leave
                         self.funcs['leave']['func'](
-                                {
+                            {
                                 "ip": client_disconnect,
                                 "name": more_client_info['name'],
                                 "group": more_client_info['group']
@@ -702,11 +702,16 @@ class HiSockServer:
                         )
 
                     # Send reserved functions to existing clients
-                    clt_dcnt_header = make_header(f"$CLTDISCONN$ {json.dumps(more_client_info)}", self.header_len)
+                    clt_dcnt_header = make_header(
+                        f"$CLTDISCONN$ {json.dumps(more_client_info)} "
+                        f"$$CLTDISCONN$$",
+                        self.header_len
+                    )
 
                     for clt_to_send in self.clients:
                         clt_to_send.send(
-                            clt_dcnt_header + f"$CLTDISCONN$ {json.dumps(more_client_info)}".encode()
+                            clt_dcnt_header +
+                            f"$CLTDISCONN$ {json.dumps(more_client_info)} $$CLTDISCONN$$".encode()
                         )
                 else:
                     # Actual client message received
@@ -752,6 +757,11 @@ class HiSockServer:
                                 matching_reserve + b" "
                             ).decode()
 
+                            if name_or_group.endswith(f" ${matching_reserve.decode()}$"):
+                                name_or_group = _removesuffix(
+                                    name_or_group, f" ${matching_reserve.decode()}$"
+                                )
+
                             if name_or_group == message['data'].decode():
                                 # Most likely request to reset name
                                 name_or_group = None
@@ -778,16 +788,16 @@ class HiSockServer:
                             self.clients_rev[tuple(clt_dict.values())] = notified_sock
 
                             if (
-                                'name_change' in self.funcs and
-                                matching_reserve == b"$CHNAME$"
+                                    'name_change' in self.funcs and
+                                    matching_reserve == b"$CHNAME$"
                             ):
                                 old_name = clt_info['name']
                                 new_name = name_or_group
 
                                 self.funcs['name_change']['func'](clt_dict, old_name, new_name)
                             elif (
-                                'group_change' in self.funcs and
-                                matching_reserve == b"$CHGROUP$"
+                                    'group_change' in self.funcs and
+                                    matching_reserve == b"$CHGROUP$"
                             ):
                                 old_group = clt_info['group']
                                 new_group = name_or_group
@@ -1174,16 +1184,17 @@ if __name__ == "__main__":
     def bruh(yum_data):
         print("Hmmm whomst leaved, ah it is", yum_data['name'])
 
+
     @s.on("name_change")
     def smth(clt_info, old_name, new_name):
         print(f"Bruh, {old_name} renamed to {new_name}!")
+
 
     # @s.on("message")
     # def why(client_data, message: str):
     #     print("Message reserved function aaa")
     #     print("Client data:", client_data)
     #     print("Message:", message)
-
 
     @s.on("Sussus")
     def a(_, msg):  # _ actually is clt_data

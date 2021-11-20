@@ -26,3 +26,4 @@ class HiSockGroup:
             self.clients = clients
 
         # Contacts server
+        self.server_conn.raw_send(b"$GROUP$ " + self.name.encode())
