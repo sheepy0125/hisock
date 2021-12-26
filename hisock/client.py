@@ -1,5 +1,5 @@
 """
-This module contains the HiSockClient, used to power the client
+This module contains the `HiSockClient`, used to power the client
 of HiSock, but also contains a `connect` function, to pass in
 things automatically. It is strongly advised to use `connect`
 over `HiSockClient`, as `connect` passes in some key arguments
@@ -30,17 +30,23 @@ from typing import Union, Callable, Any
 try:
     # use relative import for pip builds (required)
     from .utils import (
-        make_header, _removeprefix,
-        ServerNotRunning, ClientDisconnected,
-        iptup_to_str, _strip_underhood_command
+        make_header,
+        _removeprefix,
+        ServerNotRunning,
+        ClientDisconnected,
+        iptup_to_str,
+        _strip_underhood_command,
     )
     from . import constants
 except ImportError:
     # relative import doesn't work for non-pip builds
     from utils import (
-        make_header, _removeprefix,
-        ServerNotRunning, ClientDisconnected,
-        iptup_to_str, _strip_underhood_command
+        make_header,
+        _removeprefix,
+        ServerNotRunning,
+        ClientDisconnected,
+        iptup_to_str,
+        _strip_underhood_command,
     )
     import constants
 
@@ -108,13 +114,13 @@ class HiSockClient:
     """
 
     def __init__(
-            self,
-            addr: tuple[str, int],
-            name: Union[str, None],
-            group: Union[str, None],
-            blocking: bool = True,
-            header_len: int = 16,
-            cache_size: int = -1
+        self,
+        addr: tuple[str, int],
+        name: Union[str, None],
+        group: Union[str, None],
+        blocking: bool = True,
+        header_len: int = 16,
+        cache_size: int = -1,
     ):
         # Function and cache storage
         self.funcs = {}
@@ -124,9 +130,7 @@ class HiSockClient:
             self.cache = []
 
         # TLS arguments
-        self.tls_arguments = {
-            "tls": False  # If TLS is false, then no TLS
-        }
+        self.tls_arguments = {"tls": False}  # If TLS is false, then no TLS
 
         # Info for socket
         self.addr = addr
@@ -138,16 +142,11 @@ class HiSockClient:
         self._closed = False
 
         # Remember to update them as more rev funcs are added
-        self.reserved_functions = [
-            'client_connect',
-            'client_disconnect'
-        ]
+        self.reserved_functions = ["client_connect", "client_disconnect"]
 
         # TLS stuff (soon to be added)
         self.tls = self._TLS(self)
-        self.tls_arguments = {
-            "tls": False
-        }
+        self.tls_arguments = {"tls": False}
         self.called_update = False
 
         # Socket intialization
@@ -163,11 +162,10 @@ class HiSockClient:
         self.sock.setblocking(blocking)
 
         # Send client hello
-        hello_dict = {
-            "name": self.name,
-            "group": self.group
-        }
-        conn_header = make_header(f"$CLTHELLO$ {json.dumps(hello_dict)} $$CLTHELLO$$", self.header_len)
+        hello_dict = {"name": self.name, "group": self.group}
+        conn_header = make_header(
+            f"$CLTHELLO$ {json.dumps(hello_dict)} $$CLTHELLO$$", self.header_len
+        )
 
         self.sock.send(
             conn_header + f"$CLTHELLO$ {json.dumps(hello_dict)} $$CLTHELLO$$".encode()
@@ -180,9 +178,7 @@ class HiSockClient:
     def __gt__(self, other: Union[HiSockClient, str]):
         """Example: HiSockClient(...) > '192.168.1.131'"""
         if type(other) not in [HiSockClient, str]:
-            raise TypeError(
-                "Type not supported for > comparison"
-            )
+            raise TypeError("Type not supported for > comparison")
         if isinstance(other, HiSockClient):
             return IPv4Address(self.addr[0]) > IPv4Address(other.addr[0])
         ip = other.split(":")  # Gets rid of ports
@@ -192,9 +188,7 @@ class HiSockClient:
     def __ge__(self, other: Union[HiSockClient, str]):
         """Example: HiSockClient(...) >= '192.168.1.131'"""
         if type(other) not in [HiSockClient, str]:
-            raise TypeError(
-                "Type not supported for >= comparison"
-            )
+            raise TypeError("Type not supported for >= comparison")
         if isinstance(other, HiSockClient):
             return IPv4Address(self.addr[0]) >= IPv4Address(other.addr[0])
         ip = other.split(":")  # Gets rid of ports
@@ -204,9 +198,7 @@ class HiSockClient:
     def __lt__(self, other: Union[HiSockClient, str]):
         """Example: HiSockClient(...) < '192.168.1.131'"""
         if type(other) not in [HiSockClient, str]:
-            raise TypeError(
-                "Type not supported for < comparison"
-            )
+            raise TypeError("Type not supported for < comparison")
         if isinstance(other, HiSockClient):
             return IPv4Address(self.addr[0]) < IPv4Address(other.addr[0])
         ip = other.split(":")  # Gets rid of ports
@@ -216,9 +208,7 @@ class HiSockClient:
     def __le__(self, other: Union[HiSockClient, str]):
         """Example: HiSockClient(...) <= '192.168.1.131'"""
         if type(other) not in [HiSockClient, str]:
-            raise TypeError(
-                "Type not supported for <= comparison"
-            )
+            raise TypeError("Type not supported for <= comparison")
         if isinstance(other, HiSockClient):
             return IPv4Address(self.addr[0]) <= IPv4Address(other.addr[0])
         ip = other.split(":")  # Gets rid of ports
@@ -228,9 +218,7 @@ class HiSockClient:
     def __eq__(self, other: Union[HiSockClient, str]):
         """Example: HiSockClient(...) == '192.168.1.131'"""
         if type(other) not in [HiSockClient, str]:
-            raise TypeError(
-                "Type not supported for == comparison"
-            )
+            raise TypeError("Type not supported for == comparison")
         if isinstance(other, HiSockClient):
             return IPv4Address(self.addr[0]) == IPv4Address(other.addr[0])
         ip = other.split(":")  # Gets rid of ports
@@ -258,34 +246,24 @@ class HiSockClient:
         def __init__(self, outer):
             self.outer = outer
 
-        def enable(
-                self,
-                rsa_privkey_filepath='.privkey',
-                suite="default"
-        ):
+        def enable(self, rsa_privkey_filepath=".privkey", suite="default"):
             # TLS NOT ADDED CURRENTLY; NOT PRIORITY
             if not self.outer.called_update:
                 self.outer.tls_arguments = {
                     "tls": True,
                     "rsa_privkey_filepath": rsa_privkey_filepath,
-                    "suite": suite
+                    "suite": suite,
                 }
 
                 dh_num_header = make_header("$DH_NUMS$", self.outer.header_len)
-                self.outer.sock.send(
-                    dh_num_header + b"$DH_NUMS$"
-                )
+                self.outer.sock.send(dh_num_header + b"$DH_NUMS$")
                 dh_info = self.outer.recv_raw()
                 print("E", dh_info)
 
                 if dh_info == b"$NOTLS$":
-                    raise TypeError(
-                        "Server has not enabled TLS"
-                    )
+                    raise TypeError("Server has not enabled TLS")
             else:
-                raise TypeError(
-                    "TLS attempted to enable after `update` called"
-                )
+                raise TypeError("TLS attempted to enable after `update` called")
 
     def update(self):
         """
@@ -310,44 +288,51 @@ class HiSockClient:
 
                     if not content_header:
                         # Most likely server error; aborts
-                        print("[SERVER] Connection forcibly closed by server, exiting...")
+                        print(
+                            "[SERVER] Connection forcibly closed by server, exiting..."
+                        )
                         raise SystemExit
                     content = self.sock.recv(int(content_header.decode()))
 
                     for matching in self.funcs.keys():
                         if re.search(r"\$.+\$", matching):
                             raise ValueError(
-                                "The format \"$command$\" is used for reserved functions - "
+                                'The format "$command$" is used for reserved functions - '
                                 "Consider using a different format\n"
-                                f"(Found with function \"{matching}\""
+                                f'(Found with function "{matching}"'
                             )
 
                     # Handle "reserved functions"
                     if (
-                            _strip_underhood_command(content, "$CLTCONN$") and
-                            'client_connect' in self.funcs
+                        _strip_underhood_command(content, "$CLTCONN$")
+                        and "client_connect" in self.funcs
                     ):
                         # Client connected to server; parse and call function
                         clt_content = json.loads(
                             _strip_underhood_command(content, "$CLTCONN$")
                         )
-                        self.funcs['client_connect']['func'](clt_content)
-                    elif _strip_underhood_command(content, "$CLTDISCONN$") and 'client_disconnect' in self.funcs:
+                        self.funcs["client_connect"]["func"](clt_content)
+                    elif (
+                        _strip_underhood_command(content, "$CLTDISCONN$")
+                        and "client_disconnect" in self.funcs
+                    ):
                         # Client disconnected from server; parse and call function
                         clt_content = json.loads(
                             _strip_underhood_command(content, "$CLTDISCONN$")
                         )
-                        self.funcs['client_disconnect']['func'](clt_content)
+                        self.funcs["client_disconnect"]["func"](clt_content)
 
                     for matching_cmd, func in self.funcs.items():
                         # Loop through functions and binded commands
-                        if content.startswith(matching_cmd.encode()) and \
-                                matching_cmd not in self.reserved_functions:
-                            parse_content = content[len(matching_cmd) + 1:]
+                        if (
+                            content.startswith(matching_cmd.encode())
+                            and matching_cmd not in self.reserved_functions
+                        ):
+                            parse_content = content[len(matching_cmd) + 1 :]
 
                             # Type Hint -> Type Cast
                             # (Exceptions need to have "From ValueError")
-                            if func['type_hint'] == str:
+                            if func["type_hint"] == str:
                                 # bytes -> str
                                 try:
                                     parse_content = parse_content.decode()
@@ -356,7 +341,7 @@ class HiSockClient:
                                         f"Type casting from bytes to string failed "
                                         f"for function \"{func['name']}\":\n           {e}"
                                     ) from ValueError
-                            elif func['type_hint'] == int:
+                            elif func["type_hint"] == int:
                                 # bytes -> int
                                 try:
                                     parse_content = int(parse_content)
@@ -365,7 +350,7 @@ class HiSockClient:
                                         f"Type casting from bytes to int "
                                         f"failed for function \"{func['name']}\":\n           {e}"
                                     ) from ValueError
-                            elif func['type_hint'] == float:
+                            elif func["type_hint"] == float:
                                 # bytes -> float
                                 try:
                                     parse_content = float(parse_content)
@@ -376,23 +361,32 @@ class HiSockClient:
                                     ) from ValueError
 
                             # Call function
-                            func['func'](parse_content)
+                            func["func"](parse_content)
 
                     # Caching
                     if self.cache_size >= 0:
-                        self.cache.append({"header": content_header, "content": content})
+                        self.cache.append(
+                            {"header": content_header, "content": content}
+                        )
 
                         if 0 < self.cache_size < len(self.cache):
                             self.cache.pop(0)
 
             except IOError as e:
                 # Normal, means message has ended
-                if e.errno != errno.EAGAIN and e.errno != errno.EWOULDBLOCK and not self._closed:
+                if (
+                    e.errno != errno.EAGAIN
+                    and e.errno != errno.EWOULDBLOCK
+                    and not self._closed
+                ):
                     # Fatal Error, abort client (print exception, print log, exit python)
                     traceback.print_exception(
                         type(e), e, e.__traceback__, file=sys.stderr
                     )
-                    print("\nServer Error encountered, aborting client...", file=sys.stderr)
+                    print(
+                        "\nServer Error encountered, aborting client...",
+                        file=sys.stderr,
+                    )
                     self.close()
 
                     raise SystemExit
@@ -416,7 +410,7 @@ class HiSockClient:
             for underhood in no_arg + with_arg:
                 if re.search(rf"\${underhood}\$", self.command):
                     raise ValueError(
-                        "The format \"$command$\" is used for reserved functions - "
+                        'The format "$command$" is used for reserved functions - '
                         "Consider using a different format"
                     )
             # Gets annotations of function
@@ -437,7 +431,7 @@ class HiSockClient:
             func_dict = {
                 "func": func,  # Function
                 "name": func.__name__,  # Function name
-                "type_hint": msg_annotation  # All function type hints
+                "type_hint": msg_annotation,  # All function type hints
             }
             self.outer.funcs[self.command] = func_dict
 
@@ -498,16 +492,13 @@ class HiSockClient:
         # Creates header and sends to server
         if re.search(r"\$.+\$", command):
             raise TypeError(
-                "Command format \"$command$\" is used for reserved functions - "
+                'Command format "$command$" is used for reserved functions - '
                 "consider using a different command"
             )
         content_header = make_header(command.encode() + b" " + content, self.header_len)
 
         # Sends to server
-        self.sock.send(
-            content_header + command.encode() +
-            b" " + content
-        )
+        self.sock.send(content_header + command.encode() + b" " + content)
 
     def raw_send(self, content: bytes):
         """
@@ -522,15 +513,13 @@ class HiSockClient:
         # Creates header and send content to server, but no command
         if re.search(b"^\$.+\$", content):
             raise TypeError(
-                "Command format \"$command$\" is used for reserved functions - "
+                'Command format "$command$" is used for reserved functions - '
                 "consider not sending a message starting with $command$"
             )
 
         # Send to server
         header = make_header(content, self.header_len)
-        self.sock.send(
-            header + content
-        )
+        self.sock.send(header + content)
 
     def recv_raw(self) -> bytes:
         """
@@ -559,20 +548,16 @@ class HiSockClient:
         """
         if new_name is not None:
             new_name_header = make_header(
-                b"$CHNAME$ " + new_name.encode() + b" $$CHNAME$$",
-                self.header_len
+                b"$CHNAME$ " + new_name.encode() + b" $$CHNAME$$", self.header_len
             )
         else:
-            new_name_header = make_header(
-                b"$CHNAME$",
-                self.header_len
-            )
+            new_name_header = make_header(b"$CHNAME$", self.header_len)
 
         # Send name change to server
         self.sock.send(
-            new_name_header +
-            (b"$CHNAME$ " + new_name.encode() + b" $$CHNAME$$") if new_name is not None else
-            b"$CHNAME$"
+            new_name_header + (b"$CHNAME$ " + new_name.encode() + b" $$CHNAME$$")
+            if new_name is not None
+            else b"$CHNAME$"
         )
 
     def change_group(self, new_group: Union[str, None]):
@@ -584,19 +569,15 @@ class HiSockClient:
         """
         if new_group is not None:
             new_group_header = make_header(
-                b"$CHGROUP$ " + new_group.encode(),
-                self.header_len
+                b"$CHGROUP$ " + new_group.encode(), self.header_len
             )
         else:
-            new_group_header = make_header(
-                b"$CHGROUP$",
-                self.header_len
-            )
+            new_group_header = make_header(b"$CHGROUP$", self.header_len)
 
         self.sock.send(
-            new_group_header +
-            (b"$CHGROUP$ " + new_group.encode()) if new_group is not None else
-            b"$CHGROUP$"
+            new_group_header + (b"$CHGROUP$ " + new_group.encode())
+            if new_group is not None
+            else b"$CHGROUP$"
         )
 
     def get_cache(self, idx: Union[int, slice, None] = None):
@@ -611,17 +592,9 @@ class HiSockClient:
             if len(client) == 2:
                 client = f"{client[0]}:{client[1]}"
             else:
-                raise TypeError(
-                    "Client tuple not correctly formatted"
-                )
-        get_client_header = make_header(
-            b"$GETCLT$ " + client.encode(),
-            self.header_len
-        )
-        self.sock.send(
-            get_client_header +
-            b"$GETCLT$ " + client.encode()
-        )
+                raise TypeError("Client tuple not correctly formatted")
+        get_client_header = make_header(b"$GETCLT$ " + client.encode(), self.header_len)
+        self.sock.send(get_client_header + b"$GETCLT$ " + client.encode())
 
         client = self.recv_raw()
 
@@ -669,13 +642,10 @@ class ThreadedHiSockClient(HiSockClient):
        :class:`ThreadedHiSockClient` over :class:`HiSockClient`
     """
 
-    def __init__(self,
-                 addr, name=None, group=None, blocking=True, header_len=16,
-                 cache_size=-1
-        ):
-        super().__init__(
-            addr, name, group, blocking, header_len, cache_size
-        )
+    def __init__(
+        self, addr, name=None, group=None, blocking=True, header_len=16, cache_size=-1
+    ):
+        super().__init__(addr, name, group, blocking, header_len, cache_size)
         self._thread = threading.Thread(target=self.run)
 
         self._stop_event = threading.Event()
@@ -743,8 +713,7 @@ def connect(addr, name=None, group=None, blocking=True, header_len=16, cache_siz
 
 
 def threaded_connect(
-        addr, name=None, group=None,
-        blocking=True, header_len=16, cache_size=-1
+    addr, name=None, group=None, blocking=True, header_len=16, cache_size=-1
 ):
     """
     Creates a :class:`ThreadedHiSockClient` instance. See :class:`ThreadedHiSockClient`
@@ -752,45 +721,40 @@ def threaded_connect(
 
     :return: A :class:`ThreadedHiSockClient` instance
     """
-    return ThreadedHiSockClient(
-        addr, name, group, blocking, header_len, cache_size
-    )
+    return ThreadedHiSockClient(addr, name, group, blocking, header_len, cache_size)
 
 
 if __name__ == "__main__":
-    s = threaded_connect(('192.168.1.131', 33333), name="Sussus", group="Amogus", cache_size=5)
+    s = threaded_connect(
+        ("192.168.1.131", 33333), name="Sussus", group="Amogus", cache_size=5
+    )
     s.change_name("Burp")
-
 
     @s.on("Joe")
     def hehe(_):
-        print("This message was sent from server after client connection\n"
-              "(Sent to every client)")
+        print(
+            "This message was sent from server after client connection\n"
+            "(Sent to every client)"
+        )
         s.send("Sussus", b"Some random msg I guess")
-
 
     @s.on("pog")
     def eee(msg):
-        print("Follow up message sent by server\n"
-              "(Also sent to every client)")
+        print("Follow up message sent by server\n" "(Also sent to every client)")
         print("Message:", msg)
         # s.close()
-
 
     @s.on("client_connect")
     def please(data):
         print(f"Client {':'.join(map(str, data['ip']))} connected :)")
 
-
     @s.on("client_disconnect")
     def haha_bois(disconn_data):
         print(f"Aww man, {':'.join(map(str, disconn_data['ip']))} disconnected :(")
-
 
     @s.on("Test")
     def test(data):
         print("Group message received:", data)
         print(s.get_cache(slice(1, 3)))
-
 
     s.start_client()
