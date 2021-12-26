@@ -239,13 +239,19 @@ def _type_cast(type_cast: Any, content_to_typecast: bytes, func_dict: dict) -> A
                 ) from type(e)
 
 
-def validate_ipv4(ip: Union[str, tuple], require_port: bool = True) -> bool:
+def validate_ipv4(
+    ip: Union[str, tuple], require_ip: bool = True, require_port: bool = True
+) -> bool:
     """
     Validates an IPv4 address.
     If the address isn't valid, it will raise an exception.
     Otherwise, it'll return True
     :param ip: The IPv4 address to validate.
     :type ip: Union[str, tuple]
+    :param require_ip: Whether or not to require an IP address.
+        If True, it will raise an exception if no IP address is given.
+        If False, this will only check the port.
+    :type require_ip: bool
     :param require_port: Whether or not to require a port to be specified.
         If True, it will raise an exception if no port is specified.
         If False, it will return the address as a tuple without a port.
@@ -255,21 +261,32 @@ def validate_ipv4(ip: Union[str, tuple], require_port: bool = True) -> bool:
     :raise ValueError: IP address is not valid
     """
 
-    deconstructed_ip = ipstr_to_tup(ip) if isinstance(ip, str) else ip
+    if not (require_ip or require_port):
+        return True  # There's nothing to check!
+
+    deconstructed_ip = None
+    if isinstance(ip, str):
+        if not require_ip or not require_port:
+            deconstructed_ip = (ip,)
+        else:
+            deconstructed_ip = ipstr_to_tup(ip)
+    elif isinstance(ip, tuple):
+        deconstructed_ip = ip
 
     if len(deconstructed_ip) == 0:
         raise ValueError("IP address is empty")
 
     # Port checking
-    if len(deconstructed_ip) == 1 and require_port:
-        raise ValueError("IP address must contain a port")
-
-    if len(deconstructed_ip) > 1:
-        port = deconstructed_ip[1]
+    if require_port:
+        port = deconstructed_ip[-1]
         if not port.isdigit():
             raise ValueError(f"Port must be a number, not {port}")
-        if 1 > int(port) > 65535:
-            raise ValueError(f"{port} is not a valid port (1-65535)")
+
+        elif int(port) < 0 or int(port) > 65535:
+            raise ValueError(f"{port} is not a valid port (0-65535)")
+        else:
+            if not require_ip:
+                return True
 
     # IP checking
     ip = deconstructed_ip[0]
@@ -299,10 +316,49 @@ def get_local_ip(all_ips: bool = False) -> str:
         return socket.gethostbyname_ex(socket.gethostname())[-1]
 
 
-# I WILL REFACTOR THIS NEXT COMMIT DON'T WORRY
+def _input_ip_address(question: str) -> str:
+    """
+    Asks the user to input an IP address. Returns the address as a string
+    when it is valid.
+
+    :param question: The question to ask the user
+    :type question: str
+    :return: A valid IPv4 address
+    :rtype: str
+    """
+
+    ip_address = input(question)
+    try:
+        validate_ipv4(ip_address, require_port=False)
+    except Exception as error:
+        print(f"\033[91mInvalid IP: {error}\033[0m\n")
+        return _input_ip_address(question)
+    return ip_address
+
+
+def _input_port(question: str) -> int:
+    """
+    Asks the user to enter a port. Returns the port as an integer when it
+    is valid.
+
+    :param question: The question to ask the user
+    :type question: str
+    :return: A valid port
+    :rtype: int
+    """
+
+    port = input(question)
+    try:
+        validate_ipv4(port, require_ip=False)
+    except ValueError as error:
+        print(f"\033[91mInvalid port: {error}\033[0m\n")
+        return _input_port(question)
+    return port
+
+
 def input_server_config(
-    ip_prompt: str = "Enter the IP of where to host the server: ",
-    port_prompt: str = "Enter the Port of where to host the server: ",
+    ip_prompt: str = "Enter the IP of for the server: ",
+    port_prompt: str = "Enter the port for the server: ",
 ) -> tuple[str, int]:
     """
     Provides a built-in way to obtain the IP and port of where the server
@@ -310,59 +366,21 @@ def input_server_config(
 
     :param ip_prompt: A string, specifying the prompt to show when
         asking for IP.
-
-        Default is "Enter the IP of where to host the server: "
     :type ip_prompt: str, optional
     :param port_prompt: A string, specifying the prompt to show when
         asking for Port
-
-        Default is "Enter the Port of where to host the server: "
     :type port_prompt: str, optional
     :return: A two-element tuple, consisting of IP and Port
     :rtype: tuple[str, int]
     """
 
-    # Flags
-    ip_range_check = True
-
-    ip = input(ip_prompt)
-
-    if re.search(r"^((\d?){3}\.){3}(\d\d?\d?)[ ]*$", ip):
-        # IP conformity regex
-        split_ip = list(map(int, ip.split(".")))
-        split_ip = [i > 255 for i in split_ip]
-
-        if any(split_ip):
-            ip_range_check = True
-
-    while (
-        ip == "" or not re.search(r"^((\d?){3}\.){3}(\d\d?\d?)[ ]*$", ip)
-    ) or ip_range_check:
-        # If IP not conform to regex, accept input until it
-        # is compliant
-        ip = input(f"\033[91mE: Invalid IP\033[0m\n{ip_prompt}")
-        if re.search(r"^((\d?){3}\.){3}(\d\d?\d?)[ ]*$", ip):
-            split_ip = list(map(int, ip.split(".")))
-            split_ip = [i > 255 for i in split_ip]
-
-            if not any(split_ip):
-                ip_range_check = False
-
-    port = input(port_prompt)
-
-    while (port == "" or not port.isdigit()) or (port.isdigit() and int(port) > 65535):
-        # If port is > 65535, or not numerical, repeat until it is
-        port = input(f"\033[91mE: Invalid Port\033[0m\n{port_prompt}")
-    port = int(port)
-
-    # Returns
-    return ip, port
+    return (_input_ip_address(ip_prompt), _input_port(port_prompt))
 
 
 def input_client_config(
     ip_prompt: str = "Enter the IP of the server: ",
-    port_prompt: str = "Enter the Port of the server: ",
-    name_prompt: Union[str, None] = "Enter name to connect as: ",
+    port_prompt: str = "Enter the port of the server: ",
+    name_prompt: Union[str, None] = "Enter name: ",
     group_prompt: Union[str, None] = "Enter group to connect to: ",
 ) -> tuple[Union[str, int], ...]:
     """
@@ -371,60 +389,29 @@ def input_client_config(
 
     :param ip_prompt: A string, specifying the prompt to show when
         asking for IP.
-
-        Default is "Enter the IP of the server: "
     :type ip_prompt: str, optional
     :param port_prompt: A string, specifying the prompt to show when
-        asking for Port
-
-        Default is "Enter the Port of the server: "
+        asking for port
     :type port_prompt: str, optional
     :param name_prompt: A string, specifying the prompt to show when
-        asking for Client Name
-
-        Default is "Enter name to connect as: " (Pass in None for no input)
+        asking for client name
     :type name_prompt: Union[str, None], optional
     :param group_prompt: A string, specifying the prompt to show when
-        askign for Client Group
-
-        Default is "Enter group to connect to: " (Pass in None for no input)
+        asking for client group
     :type group_prompt: Union[str, None], optional
     :return: A tuple containing the config options of the server
     :rtype: tuple[str, int, Optional[str], Optional[int]]
     """
-    # Grabs IP and Port from previously defined function
-    ip, port = input_server_config(ip_prompt, port_prompt)
 
-    # Flags
-    name = None
-    group = None
+    ip, port = _input_ip_address(ip_prompt), _input_port(port_prompt)
+    name, group = None, None
 
-    # If names are enabled
-    if name_prompt is not None:
+    if name_prompt:
         name = input(name_prompt)
-
-        # Repeat until name has an input
-        while name == "":
-            name = input(name_prompt)
-
-    # If groups are enabled
-    if group_prompt is not None:
+    if group_prompt:
         group = input(group_prompt)
 
-        # Repeat until group has an input
-        while group == "":
-            group = input(group_prompt)
-
-    # Return list
-    ret = [ip, port]
-
-    if name is not None:
-        ret.append(name)
-    if group is not None:
-        ret.append(group)
-
-    # Return
-    return tuple(ret)
+    return tuple(filter(None, (ip, port, name, group)))
 
 
 def ipstr_to_tup(formatted_ip: str) -> tuple[str, int]:
