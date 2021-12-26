@@ -13,16 +13,12 @@ Copyright SSS_Says_Snek, 2021-present
 
 from __future__ import annotations
 
+import json
+import pathlib
 import re
 import socket
-from typing import Union, Optional
-
-
-# __all__ = [
-#     'make_header', 'receive_message',
-#     'get_local_ip', 'ipstr_to_tup',
-#     'iptup_to_str'
-# ]
+from typing import Union, Optional, Any
+from ipaddress import IPv4Address
 
 
 # Some custom exceptions
@@ -35,6 +31,10 @@ class ServerException(Exception):
 
 
 class NoMessageException(Exception):
+    pass
+
+
+class InvalidTypeCast(Exception):
     pass
 
 
@@ -51,8 +51,37 @@ class NoHeaderWarning(Warning):
     pass
 
 
-def make_header(header_msg: Union[str, bytes],
-                header_len: int, encode=True) -> Union[str, bytes]:
+class _Sentinel:
+    pass
+
+
+class MessageCacheMember:
+    _available_attrs = ["header", "content", "called", "command"]
+
+    def __init__(self, message_dict):
+        # I mean... that's it
+        self.header = message_dict.get("header", _Sentinel)
+        self.content = message_dict.get("content", _Sentinel)
+        self.called = message_dict.get("called", _Sentinel)
+        self.command = message_dict.get("command", _Sentinel)
+
+        for key, values in dict(self.__dict__).items():
+            if values is _Sentinel:
+                del self.__dict__[key]
+
+    def __str__(self):
+        return f"<MessageCacheMember: {self.content}>"
+
+
+class File:
+    def __init__(self, file: Union[str, pathlib.Path]):
+        if isinstance(file, str):
+            pass
+
+
+def make_header(
+    header_msg: Union[str, bytes], header_len: int, encode=True
+) -> Union[str, bytes]:
     """
     Makes a header of ``header_msg``, with a maximum
     header length of ``header_len``
@@ -75,7 +104,9 @@ def make_header(header_msg: Union[str, bytes],
     return constructed_header
 
 
-def receive_message(connection, header_len) -> dict:
+def receive_message(
+    connection: socket.socket, header_len: int
+) -> Union[dict[str, bytes], bool]:
     """
     Receives a message from a server or client.
 
@@ -98,50 +129,26 @@ def receive_message(connection, header_len) -> dict:
             data = connection.recv(msg_len)
 
             return {"header": header_msg, "data": data}
-        raise NoMessageException(
-            "No header received, aborting..."
-        )
+        return False
     except ConnectionResetError:
+        # This is most likely where clients will disconnect
         pass
 
 
 def _removeprefix(
-        string: Union[str, bytes],
-        prefix: Union[str, bytes],
+    string: Union[str, bytes],
+    prefix: Union[str, bytes],
 ) -> Union[str, bytes]:
     """A backwards-compatible alternative of str.removeprefix"""
     if string.startswith(prefix):
-        return string[len(prefix):]
+        return string[len(prefix) :]
     else:
         return string[:]
 
 
-def _removesuffix(
-        string: Union[str, bytes],
-        suffix: Union[str, bytes],
-) -> Union[str, bytes]:
-    """A backwards-compatible alternative of str.removeprefix"""
-    if string.endswith(suffix):
-        return string[:-len(suffix)]
-    else:
-        return string[:]
-
-
-def _strip_underhood_command(data, command: str):
-    """Command: Surrounded by $ already"""
-    if isinstance(data, str):
-        if data.startswith(f"{command} ") and data.endswith(f" ${command}$"):
-            return _removeprefix(_removesuffix(data, f" ${command}$"), f"{command} ")
-    elif isinstance(data, bytes):
-        if (
-                data.startswith(command.encode() + b" ") and
-                data.endswith(b" $" + command.encode() + b"$")
-        ):
-            return _removeprefix(_removesuffix(data, f" ${command}$"), f"{command} ")
-    return False
-
-
-def _dict_tupkey_lookup(multikey, _dict, idx_to_match=None):
+def _dict_tupkey_lookup(
+    multikey: Any, _dict: dict, idx_to_match: Union[int, None] = None
+) -> Any:
     """
     Returns the value of the dict looked up,
     given a key that is part of a key-tuple
@@ -150,12 +157,13 @@ def _dict_tupkey_lookup(multikey, _dict, idx_to_match=None):
         if idx_to_match is None:
             if multikey in key:
                 yield value
-        elif isinstance(idx_to_match, int):
-            if multikey == key[idx_to_match]:
-                yield value
+        elif isinstance(idx_to_match, int) and multikey == key[idx_to_match]:
+            yield value
 
 
-def _dict_tupkey_lookup_key(multikey, _dict, idx_to_match=None):
+def _dict_tupkey_lookup_key(
+    multikey: Any, _dict: dict, idx_to_match: Union[int, None] = None
+) -> Any:
     """
     Returns the key of the dict looked up,
     given a key that is part of a key-tuple
@@ -164,21 +172,18 @@ def _dict_tupkey_lookup_key(multikey, _dict, idx_to_match=None):
         if idx_to_match is None:
             if multikey in key:
                 yield key
-        elif isinstance(idx_to_match, int):
-            if multikey == key[idx_to_match]:
-                yield key
+        elif isinstance(idx_to_match, int) and multikey == key[idx_to_match]:
+            yield key
 
 
-def _type_cast_server(
-        type_cast,
-        content_to_typecast: bytes,
-        func_dict: dict
-):
+def _type_cast(type_cast: Any, content_to_typecast: bytes, func_dict: dict) -> Any:
     """
     Basis for type casting on the server
     If testing, replace `func_dict` with a dummy one
     Currently NOT guarenteed to return, please remember to change this API
     """
+    if type_cast == bytes:
+        return content_to_typecast
     if type_cast == str:
         try:
             typecasted_content = content_to_typecast.decode()
@@ -206,31 +211,98 @@ def _type_cast_server(
                 f"Type casting from bytes to float failed for function "
                 f"\"{func_dict['name']}\":\n           {e}"
             ) from ValueError
-    # elif type_cast == list:
-    #     try:
-    #         _dict = json.loads(content_to_typecast)
-    #         typecasted_content = list(_dict.values())
-    #         return typecasted_content  # Remember to change this, but I"m lazy rn
-    #     except json.decoder.JSONDecodeError as e:
-    #         raise TypeError(
-    #             f"Type casting from bytes to list"
-    #         )
+    elif type_cast is None:
+        return content_to_typecast
+    for _type in [list, dict]:
+        if type_cast == _type:
+            try:
+                typecasted_content = json.loads(content_to_typecast)
+                return typecasted_content
+            except UnicodeDecodeError:
+                raise TypeError(
+                    f"Cannot decode message data during "
+                    f"bytes->{_type.__name__} type cast"
+                    "(current implementation requires string to "
+                    "type cast, not bytes)"
+                ) from UnicodeDecodeError
+            except ValueError:
+                raise TypeError(
+                    f"Type casting from bytes to {_type.__name__} "
+                    f"failed for function \"{func_dict['name']}\""
+                    f":\n           Message is not a {_type.__name__}"
+                ) from ValueError
+            except Exception as e:
+                raise TypeError(
+                    f"Type casting from bytes to {_type.__name__} "
+                    f"failed for function \"{func_dict['name']}\""
+                    f":\n           {e}"
+                ) from type(e)
 
 
-def get_local_ip():
+def validate_ipv4(ip: Union[str, tuple], require_port: bool = True) -> bool:
+    """
+    Validates an IPv4 address.
+    If the address isn't valid, it will raise an exception.
+    Otherwise, it'll return True
+    :param ip: The IPv4 address to validate.
+    :type ip: Union[str, tuple]
+    :param require_port: Whether or not to require a port to be specified.
+        If True, it will raise an exception if no port is specified.
+        If False, it will return the address as a tuple without a port.
+    :type require_port: bool
+    :return: If the address is valid
+    :rtype: bool
+    :raise ValueError: IP address is not valid
+    """
+
+    deconstructed_ip = ipstr_to_tup(ip) if isinstance(ip, str) else ip
+
+    if len(deconstructed_ip) == 0:
+        raise ValueError("IP address is empty")
+
+    # Port checking
+    if len(deconstructed_ip) == 1 and require_port:
+        raise ValueError("IP address must contain a port")
+
+    if len(deconstructed_ip) > 1:
+        port = deconstructed_ip[1]
+        if not port.isdigit():
+            raise ValueError(f"Port must be a number, not {port}")
+        if 1 > int(port) > 65535:
+            raise ValueError(f"{port} is not a valid port (1-65535)")
+
+    # IP checking
+    ip = deconstructed_ip[0]
+    try:
+        ip = IPv4Address(ip)
+    except ValueError:
+        raise ValueError(f"{ip} is not a valid IPv4 address")
+
+
+def get_local_ip(all_ips: bool = False) -> str:
     """
     Gets the local IP of your device, with sockets
 
+    :param all_ips: A boolean, specifying to return all the
+        local IPs or not. If set to False (the default), it will return
+        the local IP first found by ``socket.gethostbyname()``
+
+        Default: False
+    :type all_ips: bool, optional
     :return: A string containing the IP address, in the
         format "ip:port"
     :rtype: str
     """
-    return socket.gethostbyname(socket.gethostname())
+    if not all_ips:
+        return socket.gethostbyname(socket.gethostname())
+    else:
+        return socket.gethostbyname_ex(socket.gethostname())[-1]
 
 
+# I WILL REFACTOR THIS NEXT COMMIT DON'T WORRY
 def input_server_config(
-        ip_prompt: str = "Enter the IP of where to host the server: ",
-        port_prompt: str = "Enter the Port of where to host the server: "
+    ip_prompt: str = "Enter the IP of where to host the server: ",
+    port_prompt: str = "Enter the Port of where to host the server: ",
 ) -> tuple[str, int]:
     """
     Provides a built-in way to obtain the IP and port of where the server
@@ -255,23 +327,22 @@ def input_server_config(
 
     ip = input(ip_prompt)
 
-    if re.search("^((\d?){3}\.){3}(\d\d?\d?)[ ]*$", ip):
+    if re.search(r"^((\d?){3}\.){3}(\d\d?\d?)[ ]*$", ip):
         # IP conformity regex
-        split_ip = list(map(int, ip.split('.')))
+        split_ip = list(map(int, ip.split(".")))
         split_ip = [i > 255 for i in split_ip]
 
         if any(split_ip):
             ip_range_check = True
 
-    while (ip == '' or not re.search(
-            "^((\d?){3}\.){3}(\d\d?\d?)[ ]*$",
-            ip
-    )) or ip_range_check:
+    while (
+        ip == "" or not re.search(r"^((\d?){3}\.){3}(\d\d?\d?)[ ]*$", ip)
+    ) or ip_range_check:
         # If IP not conform to regex, accept input until it
         # is compliant
         ip = input(f"\033[91mE: Invalid IP\033[0m\n{ip_prompt}")
-        if re.search("^((\d?){3}\.){3}(\d\d?\d?)[ ]*$", ip):
-            split_ip = list(map(int, ip.split('.')))
+        if re.search(r"^((\d?){3}\.){3}(\d\d?\d?)[ ]*$", ip):
+            split_ip = list(map(int, ip.split(".")))
             split_ip = [i > 255 for i in split_ip]
 
             if not any(split_ip):
@@ -279,10 +350,7 @@ def input_server_config(
 
     port = input(port_prompt)
 
-    while (
-            (port == '' or not port.isdigit()) or
-            (port.isdigit() and int(port) > 65535)
-    ):
+    while (port == "" or not port.isdigit()) or (port.isdigit() and int(port) > 65535):
         # If port is > 65535, or not numerical, repeat until it is
         port = input(f"\033[91mE: Invalid Port\033[0m\n{port_prompt}")
     port = int(port)
@@ -292,10 +360,10 @@ def input_server_config(
 
 
 def input_client_config(
-        ip_prompt: str = "Enter the IP of the server: ",
-        port_prompt: str = "Enter the Port of the server: ",
-        name_prompt: Union[str, None] = "Enter name to connect as: ",
-        group_prompt: Union[str, None] = "Enter group to connect to: "
+    ip_prompt: str = "Enter the IP of the server: ",
+    port_prompt: str = "Enter the Port of the server: ",
+    name_prompt: Union[str, None] = "Enter name to connect as: ",
+    group_prompt: Union[str, None] = "Enter group to connect to: ",
 ) -> tuple[Union[str, int], ...]:
     """
     Provides a built-in way to obtain the IP and port of the configuration
@@ -325,9 +393,7 @@ def input_client_config(
     :rtype: tuple[str, int, Optional[str], Optional[int]]
     """
     # Grabs IP and Port from previously defined function
-    ip, port = input_server_config(
-        ip_prompt, port_prompt
-    )
+    ip, port = input_server_config(ip_prompt, port_prompt)
 
     # Flags
     name = None
@@ -338,7 +404,7 @@ def input_client_config(
         name = input(name_prompt)
 
         # Repeat until name has an input
-        while name == '':
+        while name == "":
             name = input(name_prompt)
 
     # If groups are enabled
@@ -346,7 +412,7 @@ def input_client_config(
         group = input(group_prompt)
 
         # Repeat until group has an input
-        while group == '':
+        while group == "":
             group = input(group_prompt)
 
     # Return list
@@ -361,9 +427,7 @@ def input_client_config(
     return tuple(ret)
 
 
-def ipstr_to_tup(
-        formatted_ip: str
-) -> tuple[Union[str, int], ...]:
+def ipstr_to_tup(formatted_ip: str) -> tuple[str, int]:
     """
     Converts a string IP address into a tuple equivalent
 
@@ -376,17 +440,12 @@ def ipstr_to_tup(
         an INTEGER port as the second element
     :rtype: tuple[str, int]
     """
-    ip_split = formatted_ip.split(':')
-    recon_ip_split = [
-        str(ip_split[0]),
-        int(ip_split[1])
-    ]
+    ip_split = formatted_ip.split(":")
+    recon_ip_split = [str(ip_split[0]), int(ip_split[1])]
     return tuple(recon_ip_split)  # Convert list to tuple
 
 
-def iptup_to_str(
-        formatted_tuple: tuple[str, int]
-) -> str:
+def iptup_to_str(formatted_tuple: tuple[str, int]) -> str:
     """
     Converts a tuple IP address into a string equivalent
 
