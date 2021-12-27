@@ -180,7 +180,7 @@ def _type_cast(type_cast: Any, content_to_typecast: bytes, func_dict: dict) -> A
     """
     Basis for type casting on the server
     If testing, replace `func_dict` with a dummy one
-    Currently NOT guarenteed to return, please remember to change this API
+    Currently NOT guranteed to return, please remember to change this API
     """
     if type_cast == bytes:
         return content_to_typecast

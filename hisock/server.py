@@ -60,37 +60,39 @@ except ImportError:
 
 class HiSockServer:
     """
-    The server class for hisock
-    HiSockServer offers a neater way to send and receive data than
-    sockets. You don't need to worry about headers now, yay!
+    The server class for HiSock.
 
     :param addr: A two-element tuple, containing the IP address and the
         port number of where the server should be hosted.
         Due to the nature of reserved ports, it is recommended to host the
-        server with a port number that's higher than 1023.
-        Only IPv4 currently supported
+        server with a port number that's greater than or equal to 1024.
+        **Only IPv4 is currently supported**
     :type addr: tuple
     :param blocking: A boolean, set to whether the server should block the loop
         while waiting for message or not.
         Default passed in by :meth:`start_server` is True
     :type blocking: bool, optional
-    :param max_connections: The number of maximum connections :class:`HiSockServer` should accept, before
-        refusing clients' connections. Pass in 0 for unlimited connections.
+    :param max_connections: The number of maximum connections the server
+        should accept before refusing client connections. Pass in 0 for
+        unlimited connections.
         Default passed in  by :meth:`start_server` is 0
     :type max_connections: int, optional
     :param header_len: An integer, defining the header length of every message.
-        A smaller header length would mean a smaller maximum message
-        length (about 10**header_len).
-        Any client connecting MUST have the same header length as the server,
+        A larger header length would mean a larger maximum message length
+        (about 10**header_len).
+        Any client connecting **MUST** have the same header length as the server,
         or else it will crash.
-        Default passed in by :meth:`start_server` is 16 (maximum length: 10 quadrillion bytes)
+        Default passed in by :meth:`start_server` is 16 (maximum length: 10
+        quadrillion bytes)
     :type header_len: int, optional
 
-    :ivar tuple addr: A two-element tuple, containing the IP address and the
-        port number
-    :ivar int header_len: An integer, storing the header length of each "message"
-    :ivar dict clients: A dictionary, with the socket as its key, and the client info as its value
-    :ivar dict clients_rev: A dictionary, with the client info as its key, and the socket as its value
+    :ivar tuple addr: A two-element tuple containing the IP address and the port
+    :ivar int header_len: An integer storing the header length of each "message"
+    :ivar dict clients: A dictionary with the socket as its key and the
+        client info as its value
+    :ivar dict clients_rev: A dictionary with the client info as its key
+        and the socket as its value (for reverse lookup, up-to-date with
+        :attr:`clients`).
     :ivar dict funcs: A list of functions registered with decorator :meth:`on`.
         **This is mainly used for under-the-hood-code**
 
@@ -99,7 +101,11 @@ class HiSockServer:
        It is advised to use :meth:`get_client` or :meth:`get_all_clients` instead of
        using :attr:`clients` and :attr:`clients_rev`
 
-       Also, **only IPv4 is currently supported**
+    .. note::
+
+        This class is not meant to be used directly, but rather through
+        the :meth:`start_server` function.
+
     """
 
     def __init__(
@@ -108,7 +114,7 @@ class HiSockServer:
         blocking: bool = True,
         max_connections: int = 0,
         header_len: int = 16,
-        tls: Union[dict, str] = None,
+        tls: Union[dict, str, None] = None,
     ):
         # Binds address and header length to class attributes
         self.addr = addr
@@ -133,31 +139,41 @@ class HiSockServer:
             "group_change",
         ]
 
-        # Dictionaries and Lists for client lookup
+        # Dictionaries and lists for client lookup
         self._sockets_list = [self.sock]
         self.clients = {}  # socket: ((ip, port), name, group)
-        self.clients_rev = {}  # Reverse lookup of `self.clients`
+        self.clients_rev = {}
 
+        self.called_run = False
+        self.timeout: Union[None, float] = None  # Future implementation?
+
+        # TLS
         if tls is None:
             self.tls_arguments = {"tls": False}  # If TLS is false, then no TLS
-        else:
-            if isinstance(tls, dict):
-                self.tls_arguments = tls
-            elif isinstance(tls, str):
-                if tls == "default":
-                    self.tls_arguments = {
-                        "rsa_authentication_dir": ".pubkeys",
-                        "suite": "default",
-                        "diffie_hellman": constants.DH_DEFAULT,
-                    }
-        self.called_run = False
+            return
+        if isinstance(tls, dict):
+            self.tls_arguments = tls
+            return
+        if isinstance(tls, str) and tls == "default":
+            self.tls_arguments = {
+                "rsa_authentication_dir": ".pubkeys",
+                "suite": "default",
+                "diffie_hellman": constants.DH_DEFAULT,
+            }
 
     def __str__(self):
-        """Example: <HiSockServer serving at 192.168.1.133:33333>"""
+        """Example: <HiSockServer serving at 192.168.1.133:5000>"""
+
         return f"<HiSockServer serving at {':'.join(map(str, self.addr))}>"
 
+    def __len__(self):
+        """Returns how many clients are connected"""
+
+        return len(self.clients)
+
     def __gt__(self, other: Union[HiSockServer, str]):
-        """Example: HiSockServer(...) > '192.168.1.131'"""
+        """Example: HiSockServer(...) > "192.168.1.133:5000" """
+
         if type(other) not in [self.__class__, str]:
             raise TypeError("Type not supported for > comparison")
         if isinstance(other, HiSockServer):
@@ -167,7 +183,8 @@ class HiSockServer:
         return IPv4Address(self.addr[0]) > IPv4Address(ip[0])
 
     def __ge__(self, other: Union[HiSockServer, str]):
-        """Example: HiSockServer(...) >= '192.168.1.131'"""
+        """Example: HiSockServer(...) >= "192.168.1.133:5000" """
+
         if type(other) not in [self.__class__, str]:
             raise TypeError("Type not supported for >= comparison")
         if isinstance(other, HiSockServer):
@@ -177,7 +194,8 @@ class HiSockServer:
         return IPv4Address(self.addr[0]) >= IPv4Address(ip[0])
 
     def __lt__(self, other: Union[HiSockServer, str]):
-        """Example: HiSockServer(...) < '192.168.1.131'"""
+        """Example: HiSockServer(...) < "192.168.1.133:5000" """
+
         if type(other) not in [self.__class__, str]:
             raise TypeError("Type not supported for < comparison")
         if isinstance(other, HiSockServer):
@@ -187,7 +205,8 @@ class HiSockServer:
         return IPv4Address(self.addr[0]) < IPv4Address(ip[0])
 
     def __le__(self, other: Union[HiSockServer, str]):
-        """Example: HiSockServer(...) <= '192.168.1.131'"""
+        """Example: HiSockServer(...) <= "192.168.1.133:5000" """
+
         if type(other) not in [self.__class__, str]:
             raise TypeError("Type not supported for <= comparison")
         if isinstance(other, HiSockServer):
@@ -197,7 +216,8 @@ class HiSockServer:
         return IPv4Address(self.addr[0]) <= IPv4Address(ip[0])
 
     def __eq__(self, other: Union[HiSockServer, str]):
-        """Example: HiSockServer(...) == '192.168.1.131'"""
+        """Example: HiSockServer(...) == "192.168.1.133:5000" """
+
         if type(other) not in [self.__class__, str]:
             raise TypeError("Type not supported for == comparison")
         if isinstance(other, HiSockServer):
@@ -205,10 +225,6 @@ class HiSockServer:
         ip = other.split(":")  # Gets rid of port, if there is port
 
         return IPv4Address(self.addr[0]) > IPv4Address(ip[0])
-
-    def __len__(self):
-        """Example: len(HiSockServer(...)) -> Num clients"""
-        return len(self.clients)
 
     class _TLS:
         """
@@ -234,9 +250,7 @@ class HiSockServer:
     class _on:
         """Decorator used to handle something when receiving command"""
 
-        def __init__(self, outer, cmd_activation):
-            # `outer` arg is for the HiSockServer instance
-            # `cmd_activation` is the command... on activation (WOW)
+        def __init__(self, outer: HiSockServer, cmd_activation: str):
             self.outer = outer
             self.cmd_activation = cmd_activation
 
@@ -247,45 +261,43 @@ class HiSockServer:
 
             if len(func_args) != 2 and (
                 self.cmd_activation not in self.outer.reserved_functions
-                or self.cmd_activation == "message"
+                or self.cmd_activation == "message"  # `message`
             ):
                 raise ValueError(
                     f"Incorrect number of arguments: {len(func_args)} != 2"
                 )
 
-            annots = inspect.getfullargspec(func).annotations
+            annotations = inspect.getfullargspec(func).annotations
+            parameter_annotations = {
+                "clt_data": None,
+                "msg": None,
+            }
 
             if (
                 self.cmd_activation not in self.outer.reserved_functions
                 or self.cmd_activation == "message"
             ):
                 # Processes nonreserved commands and reserved `message `
-
-                # `func_args` looks like ['clt_data', 'msg']
-                # `annots` look like {'msg': str}
+                # `func_args` looks like ["clt_data", "msg"]
+                # `annotations` look like {"msg": str}
                 try:
-                    # Try to map first arg (client data)
-                    # Into type hint compliant one
-                    clt_annotation = annots[func_args[0]]
+                    # Try to map first arg (client data) into type hint compliant one
+                    clt_annotation = annotations[func_args[0]]
                     if isinstance(clt_annotation, str):
-                        clt_annotation = builtins.__dict__[annots[func_args[0]]]
+                        clt_annotation = builtins.__dict__[annotations[func_args[0]]]
+                    parameter_annotations["clt_data"] = clt_annotation
                 except KeyError:
-                    # KeyError means there is no type hint
-                    clt_annotation = None
+                    # No type hint
+                    pass
                 try:
-                    # Try to map second arg (content)
-                    # Into type hint compliant one
-                    msg_annotation = annots[func_args[1]]
+                    # Try to map second arg (content) into type hint compliant one
+                    msg_annotation = annotations[func_args[1]]
                     if isinstance(msg_annotation, str):
-                        msg_annotation = builtins.__dict__[annots[func_args[1]]]
+                        msg_annotation = builtins.__dict__[annotations[func_args[1]]]
+                    parameter_annotations["msg"] = msg_annotation
                 except KeyError:
-                    # KeyError means there is no type hint
-                    msg_annotation = None
-            else:
-                # None for now, will add support for reserved functions
-                # soon tm
-                clt_annotation = None
-                msg_annotation = None
+                    # No type hint
+                    pass
 
             # Creates function dictionary to add to `outer.funcs`
             func_dict = {
@@ -296,7 +308,7 @@ class HiSockServer:
 
             self.outer.funcs[self.cmd_activation] = func_dict
 
-            # Returns inner function, like a decorator would do
+            # Decorator stuff
             return func
 
     def on(self, command: str):
@@ -305,28 +317,31 @@ class HiSockServer:
         receives a matching command
 
         Reserved functions are functions that get activated on
-        specific events. Currently, there are 3 for HiSockServer:
+        specific events, and they are:
 
-        1. join - Activated when a client connects to the server
-
-        2. leave - Activated when a client disconnects from the server
-
-        3. message - Activated when a client messages to the server
+        1. ``join`` - Activated when a client connects to the server
+        2. ``leave`` - Activated when a client disconnects from the server
+        3. ``message`` - Activated when a client messages to the server
+        4. ``name_change`` - Activated when a client changes its name
+        5. ``group_change`` - Activated when a client changes its group
 
         The parameters of the function depend on the command to listen.
-        For example, reserved commands `join` and `leave` have only one
-        client parameter passed, while reserved command `message` has two:
-        Client Data, and Message.
+        For example, reserved commands ``join`` and ``leave`` have only one
+        client parameter passed, while reserved command ``message`` has two:
+        client data and message.
         Other nonreserved functions will also be passed in the same
-        parameters as `message`
+        parameters as ``message``
 
         In addition, certain type casting is available to nonreserved functions.
         That means, that, using type hints, you can automatically convert
         between needed instances. The type casting currently supports:
 
-        1. bytes -> int (Will raise exception if bytes is not numerical)
-
-        2. bytes -> str (Will raise exception if there's a unicode error)
+        - ``bytes`` -> ``bytes``
+        - ``bytes`` -> ``str``
+        - ``bytes`` -> ``int``
+        - ``bytes`` -> ``dict``
+        - ``dict`` -> ``dict``
+        - ``dict`` -> ``bytes``
 
         Type casting for reserved commands is scheduled to be
         implemented, and is currently being worked on.
@@ -335,9 +350,10 @@ class HiSockServer:
             when receiving it
         :type command: str
 
-        :return: The same function (The decorator just appended the function to a stack)
+        :return: The same function (the decorator just appended the function to a stack)
         :rtype: function
         """
+
         # Passes in outer to _on decorator/class
         return self._on(self, command)
 
@@ -416,7 +432,7 @@ class HiSockServer:
 
     def send_all_clients(self, command: str, content: bytes):
         """
-        Sends the commmand and content to *ALL* clients connected
+        Sends the command and content to *ALL* clients connected
 
         :param command: A string, representing the command to send to every client
         :type command: str
@@ -424,6 +440,7 @@ class HiSockServer:
             to each client
         :type content: bytes
         """
+
         content_header = make_header(command.encode() + b" " + content, self.header_len)
         for client in self.clients:
             client.send(content_header + command.encode() + b" " + content)
@@ -514,268 +531,321 @@ class HiSockServer:
         for client in self._get_all_client_sockets_in_group(group):
             client.send(content_header + content)
 
+    def _call_reserved_func(self, func_name: str, *args, **kwargs):
+        """
+        Calls a reserved function
+
+        :param func_name: The name of the reserved function to call
+        :type func_name: str
+        :param *args: The parameters to pass to the function
+        :type *args: any
+        :param **kwargs: The keyword parameters to pass to the function
+        :type **kwargs: any
+        :return: The return value of the function
+        :rtype: any
+        :raise ValueError: The function name is not a reserved function
+        :raise TypeError: Calling the function failed
+        """
+
+        try:
+            return self.funcs[func_name]["func"](*args, **kwargs)
+        except KeyError:
+            raise ValueError(f"Function {func_name} is not a reserved function")
+        except Exception as e:
+            raise TypeError(f"Calling reserved function {func_name} failed: {e}")
+
+    def _new_client_connection(self):
+        """Called when a client joins the server."""
+
+        connection, address = self.sock.accept()
+
+        # Handle client hello
+        client = receive_message(connection, self.header_len)
+
+        client_hello = _strip_underhood_command(client["data"].decode(), "$CLTHELLO$")
+        client_hello = json.loads(client_hello)
+
+        # Establishes socket lists and dicts
+        self._sockets_list.append(connection)
+
+        clt_info = {
+            "ip": address,
+            "name": client_hello["name"],
+            "group": client_hello["group"],
+        }
+
+        self.clients[connection] = clt_info
+        self.clients_rev[
+            (address, client_hello["name"], client_hello["group"])
+        ] = connection
+
+        # Call reserved join function
+        if "join" in self.funcs:
+            self.funcs["join"]["func"](clt_info)
+
+        # Send reserved functions over to existing clients
+        clt_conn_header = make_header(
+            f"$CLTCONN$ {json.dumps(clt_info)} $$CLTCONN$$", self.header_len
+        )
+        clt_to_send = [clt for clt in self.clients if clt != connection]
+
+        for sock_client in clt_to_send:
+            sock_client.send(
+                clt_conn_header
+                + f"$CLTCONN$ {json.dumps(clt_info)} $$CLTCONN$$".encode()
+            )
+
+    def _client_connection_lost(self, socket: socket.socket):
+        """
+        Called when a client leaves the server.
+
+        :param socket: The socket of the client
+        :type socket: socket.socket
+        """
+
+        client_disconnect = self.clients[socket]["ip"]
+        more_client_info = self.clients[socket]
+
+        # Remove socket from lists and dictionaries
+        self._sockets_list.remove(socket)
+        del self.clients[socket]
+        del self.clients_rev[
+            next(_dict_tupkey_lookup_key(client_disconnect, self.clients_rev))
+        ]
+
+        if "leave" in self.funcs:
+            # Reserved function - Leave
+            self.funcs["leave"]["func"](
+                {
+                    "ip": client_disconnect,
+                    "name": more_client_info["name"],
+                    "group": more_client_info["group"],
+                }
+            )
+
+        # Send reserved functions to existing clients
+        clt_disc_header = make_header(
+            f"$CLTDISCONN$ {json.dumps(more_client_info)} $$CLTDISCONN$$",
+            self.header_len,
+        )
+
+        for clt_to_send in self.clients:
+            clt_to_send.send(
+                clt_disc_header
+                + f"$CLTDISCONN$ {json.dumps(more_client_info)} $$CLTDISCONN$$".encode()
+            )
+
+    def _change_client_group_or_name(
+        self, name_or_group: str, matching_reserve: str, data: bytes
+    ):
+        """
+        Called when a client changes its name or group.
+
+        :param name_or_group: The name or group to change
+        :type name_or_group: str
+        :param matching_reserve: The matching reserved command
+        :type matching_reserve: str
+        :param data: The data to change the name or group to
+        :type data: bytes
+        """
+
+        if name_or_group == data.decode():
+            # Most likely request to reset name
+            name_or_group = None
+
+        clt_info = self.clients[self.sock]
+        clt_dict = {"ip": clt_info["ip"]}
+
+        if matching_reserve == b"$CHNAME$":
+            clt_dict["name"] = name_or_group
+            clt_dict["group"] = clt_info["group"]
+
+        elif matching_reserve == b"$CHGROUP$":
+            clt_dict["name"] = clt_info["name"]
+            clt_dict["group"] = name_or_group
+
+        del self.clients[self.sock]
+        self.clients[self.sock] = clt_dict
+
+        for key, value in dict(self.clients_rev).items():
+            if value == self.sock:
+                del self.clients_rev[key]
+        self.clients_rev[tuple(clt_dict.values())] = self.sock
+
+        if "name_change" in self.funcs and matching_reserve == b"$CHNAME$":
+            old_name = clt_info["name"]
+            new_name = name_or_group
+
+            self.funcs["name_change"]["func"](clt_dict, old_name, new_name)
+        elif "group_change" in self.funcs and matching_reserve == b"$CHGROUP$":
+            old_group = clt_info["group"]
+            new_group = name_or_group
+
+            # Call reserved function
+            self.funcs["group_change"]["func"](clt_dict, old_group, new_group)
+
     def run(self):
         """
         Runs the server. This method handles the sending and receiving of data,
         so it should be run once every iteration of a while loop, as to not
-        lose valuable information
+        lose valuable information.
         """
+
         self.called_run = True
 
-        # gets all sockets from select.select
         read_sock, write_sock, exception_sock = select.select(
-            self._sockets_list, [], self._sockets_list
+            self._sockets_list, [], self._sockets_list, self.timeout
         )
 
         for notified_sock in read_sock:
-            # loops through all sockets
-            if notified_sock == self.sock:  # Got new connection
-                connection, address = self.sock.accept()
+            # Handle new connection
+            if notified_sock == self.sock:
+                self._new_client_connection()
+                continue
 
-                # Handle client hello
-                client = receive_message(connection, self.header_len)
+            message = receive_message(notified_sock, self.header_len)
 
-                client_hello = _strip_underhood_command(
-                    client["data"].decode(), "$CLTHELLO$"
-                )
-                client_hello = json.loads(client_hello)
+            # Handle client disconnection
+            if not message:
+                self._client_connection_lost(notified_sock)
+                continue
 
-                # Establishes socket lists and dicts
-                self._sockets_list.append(connection)
+            # Actual client message received
+            clt_data = self.clients[notified_sock]
 
-                clt_info = {
-                    "ip": address,
-                    "name": client_hello["name"],
-                    "group": client_hello["group"],
-                }
+            # Handle TLS handshake
+            if message["data"] == b"$DH_NUMS$":
+                # Handle server not using TLS
+                if not self.tls_arguments["tls"]:
+                    no_tls_header = make_header("$NOTLS$", self.header_len)
+                    notified_sock.send(no_tls_header + b"$NOTLS$")
+                continue
 
-                self.clients[connection] = clt_info
-                self.clients_rev[
-                    (address, client_hello["name"], client_hello["group"])
-                ] = connection
+            # Reserved
 
-                if "join" in self.funcs:
-                    # Reserved function - Join
-                    self.funcs["join"]["func"](clt_info)
-
-                # Send reserved functions over to existing clients
-                clt_cnt_header = make_header(
-                    f"$CLTCONN$ {json.dumps(clt_info)} $$CLTCON$$", self.header_len
-                )
-                clt_to_send = [clt for clt in self.clients if clt != connection]
-
-                for sock_client in clt_to_send:
-                    sock_client.send(
-                        clt_cnt_header
-                        + f"$CLTCONN$ {json.dumps(clt_info)} $$CLTCONN$$".encode()
+            # Get client
+            if message["data"].startswith(b"$GETCLT$"):
+                try:
+                    result = self.get_client(
+                        _removeprefix(message["data"], b"$GETCLT$ ").decode()
                     )
+                    del result["socket"]
+                    clt = json.dumps(result)
+                except ValueError as e:
+                    # Failed to get client
+                    clt = '{"traceback": %s}' % str(e)
+                except TypeError:
+                    # Client does not exist
+                    clt = '{"traceback": "$NOEXIST$"}'
+
+                clt_header = make_header(clt.encode(), self.header_len)
+
+                notified_sock.send(clt_header + clt.encode())
+
+            # Client name or group change
+            for matching_reserve in [b"$CHNAME$", b"$CHGROUP$"]:
+                if message["data"].startswith(matching_reserve):
+                    name_or_group = _removeprefix(
+                        message["data"], matching_reserve + b" "
+                    ).decode()
+
+                    name_or_group = _removesuffix(
+                        name_or_group, f" ${matching_reserve.decode()}$"
+                    )
+
+                    self._change_client_group_or_name(
+                        name_or_group, matching_reserve, message["data"]
+                    )
+                    break
+
+            # Call the function to handle the command
+            for matching_cmd, func in self.funcs.items():
+                if message["data"].startswith(matching_cmd.encode()):
+                    parse_content = message["data"][len(matching_cmd) + 1 :]
+
+                    temp_parse_content = _type_cast_server(
+                        func["type_hint"]["msg"], parse_content, parse_content
+                    )
+                    if temp_parse_content is not None:
+                        parse_content = temp_parse_content
+                    func["func"](clt_data, parse_content)
+                    break
 
             else:
-                # "header" - The header of the msg, mostly not needed
-                # "data" - The actual data/content of the msg
-                message = receive_message(notified_sock, self.header_len)
+                warnings.warn(
+                    f"Received command {message['data'].decode()} but no"
+                    "function was found to handle it."
+                )
 
-                if not message:
-                    # Most likely client disconnect, sometimes can be client error
-                    client_disconnect = self.clients[notified_sock]["ip"]
-                    more_client_info = self.clients[notified_sock]
+            if "message" in self.funcs:
+                # Reserved function - message
+                inner_clt_data = self.clients[notified_sock]
+                parse_content = message["data"]
 
-                    # Remove socket from lists and dictionaries
-                    self._sockets_list.remove(notified_sock)
-                    del self.clients[notified_sock]
-                    del self.clients_rev[
-                        next(
-                            _dict_tupkey_lookup_key(client_disconnect, self.clients_rev)
+                ################################################
+                #         Type hinting -> Type casting         #
+                ################################################
+
+                if self.funcs["message"]["type_hint"]["msg"] == str:
+                    try:
+                        parse_content = message["data"].decode()
+                    except UnicodeDecodeError as e:
+                        raise TypeError(
+                            f"Type casting from bytes to string failed\n{str(e)}"
                         )
-                    ]
+                elif self.funcs["message"]["type_hint"]["msg"] == int:
+                    try:
+                        parse_content = float(message["data"])
+                    except ValueError as e:
+                        raise TypeError(
+                            f"Type casting from bytes to int failed for function "
+                            f"\"{self.funcs['message']['name']}\":\n"
+                            f"           {e}"
+                        ) from ValueError
+                elif self.funcs["message"]["type_hint"]["msg"] == float:
+                    try:
+                        parse_content = int(message["data"])
+                    except ValueError as e:
+                        raise TypeError(
+                            "Type casting from bytes to float failed for function "
+                            f"\"{self.funcs['message']['name']}\":\n"
+                            f"           {e}"
+                        ) from ValueError
 
-                    if "leave" in self.funcs:
-                        # Reserved function - Leave
-                        self.funcs["leave"]["func"](
-                            {
-                                "ip": client_disconnect,
-                                "name": more_client_info["name"],
-                                "group": more_client_info["group"],
-                            }
-                        )
-
-                    # Send reserved functions to existing clients
-                    clt_dcnt_header = make_header(
-                        f"$CLTDISCONN$ {json.dumps(more_client_info)} "
-                        f"$$CLTDISCONN$$",
-                        self.header_len,
-                    )
-
-                    for clt_to_send in self.clients:
-                        clt_to_send.send(
-                            clt_dcnt_header
-                            + f"$CLTDISCONN$ {json.dumps(more_client_info)} $$CLTDISCONN$$".encode()
-                        )
-                else:
-                    # Actual client message received
-                    clt_data = self.clients[notified_sock]
-
-                    if message["data"] == b"$DH_NUMS$":
-                        if not self.tls_arguments["tls"]:
-                            # The server's not using TLS
-                            no_tls_header = make_header("$NOTLS$", self.header_len)
-                            notified_sock.send(no_tls_header + b"$NOTLS$")
-                        continue
-                    elif message["data"].startswith(b"$GETCLT$"):
+                for _type in [list, dict]:
+                    if self.funcs["message"]["type_hint"]["msg"] == _type:
                         try:
-                            result = self.get_client(
-                                _removeprefix(message["data"], b"$GETCLT$ ").decode()
-                            )
-                            del result["socket"]
-
-                            clt = json.dumps(result)
-                        except ValueError as e:
-                            clt = '{"traceback": "' + str(e) + '"'
-                        except TypeError:
-                            clt = '{"traceback": "$NOEXIST$"}'
-
-                        clt_header = make_header(clt.encode(), self.header_len)
-
-                        print(clt)
-                        notified_sock.send(clt_header + clt.encode())
-
-                    for matching_reserve in [b"$CHNAME$", b"$CHGROUP$"]:
-                        if message["data"].startswith(matching_reserve):
-                            name_or_group = _removeprefix(
-                                message["data"], matching_reserve + b" "
-                            ).decode()
-
-                            if name_or_group.endswith(
-                                f" ${matching_reserve.decode()}$"
-                            ):
-                                name_or_group = _removesuffix(
-                                    name_or_group, f" ${matching_reserve.decode()}$"
-                                )
-
-                            if name_or_group == message["data"].decode():
-                                # Most likely request to reset name
-                                name_or_group = None
-
-                            clt_info = self.clients[notified_sock]
-                            clt_dict = {"ip": clt_info["ip"]}
-
-                            if matching_reserve == b"$CHNAME$":
-                                clt_dict["name"] = name_or_group
-                                clt_dict["group"] = clt_info["group"]
-
-                            elif matching_reserve == b"$CHGROUP$":
-                                clt_dict["name"] = clt_info["name"]
-                                clt_dict["group"] = name_or_group
-
-                            del self.clients[notified_sock]
-                            self.clients[notified_sock] = clt_dict
-
-                            for key, value in dict(self.clients_rev).items():
-                                if value == notified_sock:
-                                    del self.clients_rev[key]
-                            self.clients_rev[tuple(clt_dict.values())] = notified_sock
-
-                            if (
-                                "name_change" in self.funcs
-                                and matching_reserve == b"$CHNAME$"
-                            ):
-                                old_name = clt_info["name"]
-                                new_name = name_or_group
-
-                                self.funcs["name_change"]["func"](
-                                    clt_dict, old_name, new_name
-                                )
-                            elif (
-                                "group_change" in self.funcs
-                                and matching_reserve == b"$CHGROUP$"
-                            ):
-                                old_group = clt_info["group"]
-                                new_group = name_or_group
-
-                                self.funcs["group_change"]["func"](
-                                    clt_dict, old_group, new_group
-                                )
-
-                    for matching_cmd, func in self.funcs.items():
-                        if message["data"].startswith(matching_cmd.encode()):
-                            parse_content = message["data"][len(matching_cmd) + 1 :]
-
-                            temp_parse_content = _type_cast_server(
-                                func["type_hint"]["msg"], parse_content, parse_content
-                            )
-                            if temp_parse_content is not None:
-                                parse_content = temp_parse_content
-                            func["func"](clt_data, parse_content)
-
-                    if "message" in self.funcs:
-                        # Reserved function - message
-                        inner_clt_data = self.clients[notified_sock]
-                        parse_content = message["data"]
-
-                        ####################################################
-                        #         Type hinting -> Type casting             #
-                        ####################################################
-
-                        if self.funcs["message"]["type_hint"]["msg"] == str:
-                            try:
-                                parse_content = message["data"].decode()
-                            except UnicodeDecodeError as e:
+                            result = ast.literal_eval(message["data"].decode())
+                        except UnicodeDecodeError:
+                            raise TypeError(
+                                f"Cannot decode message data during "
+                                f"bytes->{_type.__name__} type cast"
+                                "(current implementation requires string to "
+                                "type cast, not bytes)"
+                            ) from UnicodeDecodeError
+                        except ValueError:
+                            raise TypeError(
+                                f"Type casting from bytes to {_type.__name__} "
+                                f"failed for function \"{self.funcs['message']['name']}\""
+                                f":\n           Message is not a {_type.__name__}"
+                            ) from ValueError
+                        except Exception as e:
+                            raise TypeError(
+                                f"Type casting from bytes to {_type.__name__} "
+                                f"failed for function \"{self.funcs['message']['name']}\""
+                                f":\n           {e}"
+                            ) from type(e)
+                        else:
+                            if not isinstance(result, _type):
                                 raise TypeError(
-                                    f"Type casting from bytes to string failed\n{str(e)}"
-                                )
-                        elif self.funcs["message"]["type_hint"]["msg"] == int:
-                            try:
-                                parse_content = float(message["data"])
-                            except ValueError as e:
-                                raise TypeError(
-                                    f"Type casting from bytes to int failed for function "
+                                    "Type casting from bytes to dict failed for function "
                                     f"\"{self.funcs['message']['name']}\":\n"
-                                    f"           {e}"
-                                ) from ValueError
-                        elif self.funcs["message"]["type_hint"]["msg"] == float:
-                            try:
-                                parse_content = int(message["data"])
-                            except ValueError as e:
-                                raise TypeError(
-                                    "Type casting from bytes to float failed for function "
-                                    f"\"{self.funcs['message']['name']}\":\n"
-                                    f"           {e}"
-                                ) from ValueError
+                                    f"           Message is not a {_type.__name__}"
+                                )
+                            else:
+                                parse_content = result
 
-                        for _type in [list, dict]:
-                            if self.funcs["message"]["type_hint"]["msg"] == _type:
-                                try:
-                                    result = ast.literal_eval(message["data"].decode())
-                                except UnicodeDecodeError:
-                                    raise TypeError(
-                                        f"Cannot decode message data during "
-                                        f"bytes->{_type.__name__} type cast"
-                                        "(current implementation requires string to "
-                                        "type cast, not bytes)"
-                                    ) from UnicodeDecodeError
-                                except ValueError:
-                                    raise TypeError(
-                                        f"Type casting from bytes to {_type.__name__} "
-                                        f"failed for function \"{self.funcs['message']['name']}\""
-                                        f":\n           Message is not a {_type.__name__}"
-                                    ) from ValueError
-                                except Exception as e:
-                                    raise TypeError(
-                                        f"Type casting from bytes to {_type.__name__} "
-                                        f"failed for function \"{self.funcs['message']['name']}\""
-                                        f":\n           {e}"
-                                    ) from type(e)
-                                else:
-                                    if not isinstance(result, _type):
-                                        raise TypeError(
-                                            "Type casting from bytes to dict failed for function "
-                                            f"\"{self.funcs['message']['name']}\":\n"
-                                            f"           Message is not a {_type.__name__}"
-                                        )
-                                    else:
-                                        parse_content = result
-
-                        self.funcs["message"]["func"](inner_clt_data, parse_content)
+                self.funcs["message"]["func"](inner_clt_data, parse_content)
 
     def get_group(self, group: str):
         """
@@ -1046,8 +1116,8 @@ def start_threaded_server(addr, blocking=True, max_connections=0, header_len=16)
 
 if __name__ == "__main__":
     print("Starting server...")
-    # s = HiSockServer(('192.168.1.131', 33333))
-    s = start_server(("192.168.1.131", 33333))
+    # s = HiSockServer(('192.168.1.133:5000', 33333))
+    s = start_server(("192.168.1.133:5000", 33333))
 
     @s.on("join")
     def test_sussus(yum_data):
